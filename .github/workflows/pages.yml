@@ -1,0 +1,56 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [ release-2.0 ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16
+          cache: npm
+      - name: Install deps
+        run: npm ci --legacy-peer-deps
+      - name: Build
+        run: BROWSERSLIST_IGNORE_OLD_DATA=1 npm run build
+      - name: SPA fallback (optional)
+        run: if [ -f public/index.html ]; then cp public/index.html public/404.html; fi
+      - name: Prepare Pages artifact
+        run: |
+          set -e
+          if [ -d public ]; then OUT=public;
+          elif [ -d docs ]; then OUT=docs;
+          elif [ -d dist ]; then OUT=dist;
+          else echo "No build folder (public/docs/dist) found" && ls -la && exit 1; fi
+          echo "Using build folder: $OUT"
+          rm -rf pages && mkdir -p pages
+          cp -r "$OUT"/. pages/
+          if [ -f pages/index.html ]; then cp pages/index.html pages/404.html; fi
+          touch pages/.nojekyll
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./pages
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
